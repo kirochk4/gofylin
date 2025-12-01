@@ -5,20 +5,47 @@ import (
 	"log"
 )
 
+type varType uint8
+
+const (
+	varLocal varType = iota
+	varNonLocal
+	varGlobal
+)
+
+type env struct {
+	store map[varName]Value
+	types map[varName]varType
+	encl  *env
+}
+
+func newEnv(encl *env) *env {
+	return &env{
+		store: make(map[varName]Value),
+		encl:  encl,
+		types: make(map[varName]varType),
+	}
+}
+
 type Evaluator struct {
 	Globals map[varName]Value
-	module  map[varName]Value
+	*env
 }
 
 func New() *Evaluator {
 	return &Evaluator{
-		Globals: make(map[varName]Value),
-		module:  make(map[varName]Value),
+		Globals: map[varName]Value{
+			"println": &nativePrintln,
+		},
+		env: newEnv(nil),
 	}
 }
 
 func (e *Evaluator) Interpret(source []byte) (err error) {
-	defer catch(func(exc runtimeException) { err = exc })
+	defer catch(func(exc runtimeException) {
+		fmt.Println(exc)
+		err = exc
+	})
 	p := newParser(source)
 	ast, err := p.parse()
 	if err != nil {
@@ -54,34 +81,38 @@ func (e *Evaluator) eval(node astNode) Value {
 	case *strLit:
 		return Str(node.value)
 	case *defStmt:
-		return &Func{
-			name:    node.name,
-			params:  node.params,
-			code:    node.body,
-			closure: e.module,
-		}
+		e.set(
+			&ident{node.name},
+			&Func{
+				Name:    node.name,
+				params:  node.params,
+				code:    node.body,
+				closure: e.env,
+			},
+		)
+		return nil
 	case *dictLit:
-		obj := &Doc{
+		doc := &Doc{
 			pairs: make(map[Value]Value, len(node.pairs)),
 			proto: nil,
 		}
 		for key, val := range node.pairs {
-			obj.pairs[e.eval(key)] = e.eval(val)
+			doc.pairs[e.eval(key)] = e.eval(val)
 		}
-		return obj
+		return doc
 	case *protoDictExpr:
 		proto, ok := e.eval(node.proto).(*Doc)
 		if !ok {
-			Raise(Str("prototype must be 'obj' type"))
+			Raise(Str("prototype must be 'doc' type"))
 		}
-		obj := &Doc{
+		doc := &Doc{
 			pairs: make(map[Value]Value, len(node.dict.pairs)),
 			proto: proto,
 		}
 		for key, val := range node.dict.pairs {
-			obj.pairs[e.eval(key)] = e.eval(val)
+			doc.pairs[e.eval(key)] = e.eval(val)
 		}
-		return obj
+		return doc
 	case *infixExpr:
 		l, r := e.eval(node.left), e.eval(node.right)
 		switch node.opToken.tokenType {
@@ -97,21 +128,233 @@ func (e *Evaluator) eval(node astNode) Value {
 		default:
 			panic("eval infix expr: unknown operation")
 		}
+	case *whileStmt:
+		for valueToBool(e.eval(node.cond)) {
+			for _, stmt := range node.loop {
+				e.eval(stmt)
+			}
+		}
+		return nil
+	case *exprStmt:
+		e.eval(node.expr)
+		return nil
+	case *assignStmt:
+		rightVals := []Value{}
+		for _, r := range node.rights {
+			rightVals = append(rightVals, e.eval(r))
+		}
+		if len(node.lefts) > len(rightVals) {
+			for range len(node.lefts) - len(rightVals) {
+				rightVals = append(rightVals, None{})
+			}
+		}
+		for i, l := range node.lefts {
+			e.set(l, rightVals[i])
+		}
+		return nil
+	case *ident:
+		return e.get(node)
+	case *callExpr:
+		left := e.eval(node.left)
+		native, ok := left.(*NativeFunc)
+		if ok {
+			args := e.evalExprs(node.args)
+			return native.code(e, args)
+		}
+
+		callee, ok := left.(*Func)
+		if !ok {
+			Raise(Str("can only call functions"))
+		}
+
+		args := e.evalExprs(node.args)
+
+		if len(args) < len(callee.params) {
+			for range len(callee.params) - len(args) {
+				args = append(args, None{})
+			}
+		}
+
+		encl := e.env
+		e.env = newEnv(callee.closure)
+		for i, param := range callee.params {
+			e.env.store[param] = args[i]
+		}
+
+		ret := e.evalCode(callee.code)
+
+		e.env = encl
+
+		if ret != nil {
+			return ret[0]
+		}
+		return None{}
+	case *returnStmt:
+		panic(returnSignal(e.evalExprs(node.values)))
+	}
+	panic("eval: unknown node type")
+}
+
+func (e *Evaluator) evalCode(stmts []astStmt) (vals []Value) {
+	defer catch(func(sig returnSignal) { vals = sig })
+	for _, stmt := range stmts {
+		e.eval(stmt)
+	}
+	return
+}
+
+type returnSignal []Value
+
+func (e *Evaluator) evalExprs(exprs []astExpr) []Value {
+	ret := []Value{}
+	for _, arg := range exprs {
+		ret = append(ret, e.eval(arg))
+	}
+	return ret
+}
+
+func (e *Evaluator) set(to astExpr, val Value) {
+	switch to := to.(type) {
+	case *ident:
+		if t, ok := e.env.types[to.name]; ok {
+			switch t {
+			case varLocal:
+				e.env.store[to.name] = val
+				return
+			case varNonLocal:
+				env := e.env.encl
+				for env != nil {
+					if _, ok := env.store[to.name]; ok {
+						env.store[to.name] = val
+						return
+					}
+					env = env.encl
+				}
+				Raise(Str("undefined variable"))
+			case varGlobal:
+				e.Globals[to.name] = val
+				return
+			}
+		}
+		e.env.store[to.name] = val
+	case *indexExpr:
+		toDoc, ok := e.eval(to.left).(*Doc)
+		if !ok {
+			Raise(Str("TODO"))
+		}
+		toDoc.pairs[e.eval(to.index)] = val
 	default:
-		panic("eval: unknown node type")
+		panic("set: unknown type")
 	}
 }
 
-func valuesEqual(a, b Value) Bool
-func numberOperation(a, b Value, op tokenType) Value
-func operation(a, b Value, op tokenType) Value
+func (e *Evaluator) get(from astExpr) Value {
+	switch from := from.(type) {
+	case *ident:
+		if t, ok := e.env.types[from.name]; ok {
+			switch t {
+			case varLocal:
+				if v, ok := e.env.store[from.name]; ok {
+					return v
+				}
+			case varNonLocal:
+				env := e.env.encl
+				for env != nil {
+					if v, ok := env.store[from.name]; ok {
+						return v
+					}
+					env = env.encl
+				}
+			case varGlobal:
+				if v, ok := e.Globals[from.name]; ok {
+					return v
+				}
+			}
+			Raise(Str("undefined variable"))
+		}
+		env := e.env
+		for env != nil {
+			if v, ok := env.store[from.name]; ok {
+				return v
+			}
+			env = env.encl
+		}
+		if v, ok := e.Globals[from.name]; ok {
+			return v
+		}
+		Raise(Str("undefined variable"))
+	case *indexExpr:
+		toDoc, ok := e.eval(from.left).(*Doc)
+		if !ok {
+			Raise(Str("TODO"))
+		}
+		return toDoc.pairs[e.eval(from.index)]
+	}
+	panic("get: unknown type")
+}
+
+func valueToBool(val Value) Bool {
+	if _, ok := val.(None); ok {
+		return false
+	}
+	if bv, ok := val.(Bool); ok {
+		return bv
+	}
+	return true
+}
+
+func valuesEqual(a, b Value) Bool { return a == b }
+
+func numberOperation(a, b Value, op tokenType) Value {
+	an, ok1 := a.(Num)
+	bn, ok2 := b.(Num)
+	if !ok1 || !ok2 {
+		Raise(Str("operands must be numbers"))
+	}
+	switch op {
+	case tokenPlus:
+		return an + bn
+	case tokenMinus:
+		return an - bn
+	case tokenStar:
+		return an * bn
+	case tokenSlash:
+		return an / bn
+	case tokenLess:
+		return Bool(an < bn)
+	case tokenLessEqual:
+		return Bool(an <= bn)
+	case tokenGreater:
+		return Bool(an > bn)
+	case tokenGreaterEqual:
+		return Bool(an >= bn)
+	}
+	panic("number operation: unknown operation")
+}
+
+func operation(a, b Value, op tokenType) Value {
+	if op == tokenPlus {
+		as, ok1 := a.(Str)
+		bs, ok2 := b.(Str)
+		if ok1 && ok2 {
+			return as + bs
+		}
+		an, ok1 := a.(Num)
+		bn, ok2 := b.(Num)
+		if ok1 && ok2 {
+			return an + bn
+		}
+		Raise(Str("operands must be numbers or strings"))
+	}
+	panic("operation: unknown operation")
+}
 
 type runtimeException struct {
 	value Value
 }
 
 func (exc runtimeException) Error() string {
-	return "TODO"
+	return fmt.Sprint(exc.value)
 }
 
 func Raise(exception Value) {
