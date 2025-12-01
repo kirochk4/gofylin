@@ -1,6 +1,6 @@
 **Note:** Not done yet.
 
-# Fylin
+# Fylin (Fython)
 
 ```python
 Language = {name = "anon"}
