@@ -13,6 +13,13 @@ const (
 )
 
 type varName = string
+type varType string
+
+const (
+	varLocal    varType = "local"
+	varNonLocal varType = "nonlocal"
+	varGlobal   varType = "global"
+)
 
 var integerBases = map[byte]int{'x': 16, 'o': 8, 'b': 2}
 

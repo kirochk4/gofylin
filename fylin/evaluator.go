@@ -5,13 +5,7 @@ import (
 	"log"
 )
 
-type varType uint8
 
-const (
-	varLocal varType = iota
-	varNonLocal
-	varGlobal
-)
 
 type env struct {
 	store map[varName]Value
@@ -55,6 +49,7 @@ func (e *Evaluator) Interpret(source []byte) (err error) {
 		p := &printer{}
 		fmt.Println(cover("ast", 12, "="))
 		fmt.Println(p.sprintProgram(ast))
+		fmt.Println(cover("runtime", 12, "="))
 	}
 	for _, stmt := range ast {
 		e.eval(stmt)
@@ -113,6 +108,15 @@ func (e *Evaluator) eval(node astNode) Value {
 			doc.pairs[e.eval(key)] = e.eval(val)
 		}
 		return doc
+	case *listLit:
+		doc := &Doc{
+			pairs: make(map[Value]Value, len(node.elems)),
+			proto: &protoArray,
+		}
+		for key, val := range node.elems {
+			doc.pairs[Num(key)] = e.eval(val)
+		}
+		return doc
 	case *infixExpr:
 		l, r := e.eval(node.left), e.eval(node.right)
 		switch node.opToken.tokenType {
@@ -150,6 +154,11 @@ func (e *Evaluator) eval(node astNode) Value {
 		}
 		for i, l := range node.lefts {
 			e.set(l, rightVals[i])
+		}
+		return nil
+	case *declStmt:
+		for _, name := range node.vars {
+			e.types[name] = node.varType
 		}
 		return nil
 	case *ident:
@@ -191,6 +200,19 @@ func (e *Evaluator) eval(node astNode) Value {
 		return None{}
 	case *returnStmt:
 		panic(returnSignal(e.evalExprs(node.values)))
+	case *ifStmt:
+		if valueToBool(e.eval(node.cond)) {
+			for _, stmt := range node.then {
+				e.eval(stmt)
+			}
+		} else {
+			for _, stmt := range node.else_ {
+				e.eval(stmt)
+			}
+		}
+		return nil
+	case *indexExpr:
+		return e.get(node)
 	}
 	panic("eval: unknown node type")
 }
@@ -288,7 +310,10 @@ func (e *Evaluator) get(from astExpr) Value {
 		if !ok {
 			Raise(Str("TODO"))
 		}
-		return toDoc.pairs[e.eval(from.index)]
+		if v, ok := toDoc.pairs[e.eval(from.index)]; ok {
+			return v
+		}
+		return None{}
 	}
 	panic("get: unknown type")
 }

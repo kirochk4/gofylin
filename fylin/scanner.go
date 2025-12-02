@@ -56,6 +56,7 @@ const (
 	tokenNot      tokenType = "not"
 	tokenPass     tokenType = "pass"
 	tokenNonLocal tokenType = "non local"
+	tokenLocal    tokenType = "local"
 	tokenGlobal   tokenType = "global"
 	tokenIn       tokenType = "in"
 	tokenRaise    tokenType = "raise"
@@ -87,6 +88,16 @@ func (t token) String() string {
 	)
 }
 
+type tabType = int
+
+const (
+	tabSpace = 0b01
+	tabTab   = 0b10
+
+	tabMixed = tabSpace | tabTab
+	tabNone  = tabSpace & tabTab
+)
+
 type scanner struct {
 	source  []byte
 	sp      int // source pointer
@@ -95,6 +106,7 @@ type scanner struct {
 	newLine bool
 	tabs    []int
 	curTab  int
+	tabType
 }
 
 func newScanner(source []byte) scanner {
@@ -118,18 +130,30 @@ func (s *scanner) scanToken() token {
 		return s.makeToken(tokenNewLine)
 	}
 
-	if s.curTab < s.tabs[len(s.tabs)-1] {
-		if s.curTab > s.tabs[len(s.tabs)-2] {
-			return s.errorToken("Wrong dedent size.")
+	if s.curTab < s.lastTab() {
+		s.detab()
+		if s.curTab > s.lastTab() {
+			return s.errorToken("wrong detab size")
 		}
-		s.tabs = s.tabs[:len(s.tabs)-1]
+		if s.curTab == 0 {
+			s.tabType = tabNone
+		}
 		return s.makeToken(tokenDetab)
-	} else if s.curTab > s.tabs[len(s.tabs)-1] {
-		s.tabs = append(s.tabs, s.curTab)
+	} else if s.curTab > s.lastTab() {
+		if s.curTab == tabMixed {
+			s.curTab = tabNone
+			return s.errorToken("mixed tabs and spaces")
+		}
+		s.intab()
 		return s.makeToken(tokenIntab)
 	}
 
 	if s.isAtEnd() {
+		if len(s.tabs) != 1 {
+			s.detab()
+			s.curTab = 0
+			return s.makeToken(tokenDetab)
+		}
 		return s.makeToken(tokenEof)
 	}
 
@@ -207,6 +231,10 @@ func (s *scanner) scanToken() token {
 	}
 	return s.errorToken("Unexpected character.")
 }
+
+func (s *scanner) intab()       { s.tabs = append(s.tabs, s.curTab) }
+func (s *scanner) detab()       { s.tabs = s.tabs[:len(s.tabs)-1] }
+func (s *scanner) lastTab() int { return s.tabs[len(s.tabs)-1] }
 
 func (s *scanner) isAtEnd() bool {
 	return s.current() == eofByte
@@ -288,20 +316,27 @@ func (s *scanner) errorToken(message string) token {
 
 func (s *scanner) skipWhitespace() {
 	line := s.line
-	var dent int
+	var tab int
 	defer func() {
 		if s.line > line {
-			s.curTab = dent
+			s.curTab = tab
 		}
 	}()
 	for {
 		char := s.current()
 		switch char {
-		case ' ', '\r', '\t':
-			dent++
+		case ' ':
+			s.tabType |= tabSpace
+			tab++
+			s.advance()
+		case '\t':
+			s.tabType |= tabTab
+			tab++
+			s.advance()
+		case '\r':
 			s.advance()
 		case '\n':
-			dent = 0
+			tab = 0
 			s.line++
 			s.advance()
 		case '/':
@@ -449,6 +484,7 @@ var keywords = map[string]tokenType{
 	"break":    tokenBreak,
 	"continue": tokenContinue,
 	"nonlocal": tokenNonLocal,
+	"local":    tokenLocal,
 	"global":   tokenGlobal,
 	"in":       tokenIn,
 	"raise":    tokenRaise,

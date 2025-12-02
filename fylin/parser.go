@@ -102,7 +102,7 @@ func (p *parser) parse() ([]astStmt, error) {
 	}
 
 	if len(p.errors) != 0 {
-		return nil, errors.New("TODO")
+		return nil, errors.New(p.errors[0])
 	}
 	return program, nil
 }
@@ -115,6 +115,10 @@ func (p *parser) stmt() (stmt astStmt) {
 
 	if p.match(tokenWhile) {
 		return p.whileStmt()
+	} else if p.match(tokenLocal) ||
+		p.match(tokenNonLocal) ||
+		p.match(tokenGlobal) {
+		return p.declStmt()
 	} else if p.match(tokenRaise) {
 		return p.raiseStmt()
 	} else if p.match(tokenTry) {
@@ -131,8 +135,6 @@ func (p *parser) stmt() (stmt astStmt) {
 		return p.continueStmt()
 	} else if p.match(tokenReturn) {
 		return p.returnStmt()
-	} else if p.match(tokenNonLocal) {
-		return p.nonLocalStmt()
 	} else {
 		expr := p.expr(precLowest)
 		if p.check(tokenEqual) || p.check(tokenComma) {
@@ -152,13 +154,29 @@ func isLeftHand(expr astExpr) bool {
 	}
 }
 
-func (p *parser) nonLocalStmt() *breakStmt {
-	if p.defCtx == nil {
-		p.errorAtPrevious("'nonlocal' outside function")
+func (p *parser) declStmt() *declStmt {
+	var t varType
+	switch p.previous.tokenType {
+	case tokenNonLocal:
+		t = varNonLocal
+	case tokenLocal:
+		t = varLocal
+	case tokenGlobal:
+		t = varGlobal
 	}
-	stmt := &breakStmt{}
+	decl := &declStmt{varType: t}
+	if p.defCtx == nil {
+		p.errorAtPrevious("variable modifier outside function")
+	}
+	for {
+		p.consume(tokenIdentifier, "expect variable name")
+		decl.vars = append(decl.vars, p.previous.literal)
+		if !p.match(tokenComma) {
+			break
+		}
+	}
 	p.consume(tokenNewLine, "expect new line")
-	return stmt
+	return decl
 }
 
 func (p *parser) breakStmt() *breakStmt {
@@ -311,7 +329,7 @@ func (p *parser) propertyExpr(left astExpr) *indexExpr {
 	expr := &indexExpr{
 		left: left,
 	}
-	p.consume(tokenIntab, "expect property")
+	p.consume(tokenIdentifier, "expect property")
 	expr.index = &strLit{p.previous.literal}
 	return expr
 }

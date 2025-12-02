@@ -24,6 +24,11 @@ type astExpr interface {
 
 type badStmt string
 
+type declStmt struct {
+	varType
+	vars []varName
+}
+
 type defStmt struct {
 	name   string
 	params []varName
@@ -143,6 +148,7 @@ func (n *continueStmt) astStmt() {}
 func (n *assignStmt) astStmt()   {}
 func (n *raiseStmt) astStmt()    {}
 func (n *tryStmt) astStmt()      {}
+func (n *declStmt) astStmt()     {}
 
 func (n *infixExpr) astExpr()     {}
 func (n *prefixExpr) astExpr()    {}
@@ -169,6 +175,7 @@ func (n *continueStmt) astNode() {}
 func (n *assignStmt) astNode()   {}
 func (n *raiseStmt) astNode()    {}
 func (n *tryStmt) astNode()      {}
+func (n *declStmt) astNode()     {}
 
 func (n *infixExpr) astNode()     {}
 func (n *prefixExpr) astNode()    {}
@@ -195,15 +202,24 @@ type printer struct {
 func (p *printer) sprintProgram(program []astStmt) string {
 	p.tab = 0
 	p.data = &strings.Builder{}
-	for _, stmt := range program {
+	for i, stmt := range program {
 		p.writeNode(stmt)
-		p.write("\n")
+		if i != len(program)-1 {
+			p.write("\n")
+		}
 	}
 	return p.data.String()
 }
 
 func (p *printer) writeNode(node astNode) {
 	switch node := node.(type) {
+	case *assignStmt:
+		p.writeExprs(node.lefts)
+		p.write(" = ")
+		p.writeExprs(node.rights)
+	case *returnStmt:
+		p.write("return ")
+		p.writeExprs(node.values)
 	case *defStmt:
 		p.write("def %s", node.name)
 		p.writeParams(node.params)
@@ -214,6 +230,7 @@ func (p *printer) writeNode(node astNode) {
 		p.write("if ")
 		p.writeNode(node.cond)
 		p.writeBlock(node.then)
+		p.write("\n")
 		p.writeTab()
 		p.write("else")
 		p.writeBlock(node.else_)
@@ -239,6 +256,9 @@ func (p *printer) writeNode(node astNode) {
 	case *callExpr:
 		p.writeNode(node.left)
 		p.writeArgs(node.args)
+	case *declStmt:
+		p.write("%s ", string(node.varType))
+		p.writeVars(node.vars)
 
 	case *noneLit:
 		p.write("None")
@@ -255,9 +275,13 @@ func (p *printer) writeNode(node astNode) {
 	case *dictLit:
 		p.write("{ TODO }")
 	case *listLit:
-		p.write("[ TODO ]")
+		p.write("[")
+		p.writeExprs(node.elems)
+		p.write("]")
 	case *ident:
 		p.write("%s", node.name)
+	default:
+		p.write("(undefined)")
 	}
 }
 
@@ -272,15 +296,34 @@ func (p *printer) writeBlock(block []astStmt) {
 	if len(block) == 0 {
 		p.writeTab()
 		p.write("pass")
-		p.write("\n")
 	} else {
-		for _, node := range block {
+		for i, node := range block {
 			p.writeTab()
 			p.writeNode(node)
-			p.write("\n")
+			if i != len(block)-1 {
+				p.write("\n")
+			}
 		}
 	}
 	p.subTab()
+}
+
+func (p *printer) writeExprs(exprs []astExpr) {
+	for i, expr := range exprs {
+		p.writeNode(expr)
+		if i != len(exprs)-1 {
+			p.write(", ")
+		}
+	}
+}
+
+func (p *printer) writeVars(vars []varName) {
+	for i, var_ := range vars {
+		p.write("%s", var_)
+		if i != len(vars)-1 {
+			p.write(", ")
+		}
+	}
 }
 
 func (p *printer) writeArgs(args []astExpr) {
