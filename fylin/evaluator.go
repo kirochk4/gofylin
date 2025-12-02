@@ -5,8 +5,6 @@ import (
 	"log"
 )
 
-
-
 type env struct {
 	store map[varName]Value
 	types map[varName]varType
@@ -86,6 +84,13 @@ func (e *Evaluator) eval(node astNode) Value {
 			},
 		)
 		return nil
+	case *lambdaLit:
+		return &Func{
+			Name:    node.name,
+			params:  node.params,
+			code:    node.body,
+			closure: e.env,
+		}
 	case *dictLit:
 		doc := &Doc{
 			pairs: make(map[Value]Value, len(node.pairs)),

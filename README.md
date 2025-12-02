@@ -3,15 +3,15 @@
 # Fylin (Fython)
 
 ```python
-Language = {name = "anon"}
+Language = {name = "Anon"}
 
-def initLanguage(name):
+def init_Language(name):
     return Language{name}
 
 @method(Language, "hello")
 def _hello(self):
     println("My name is " + self.name + "!")
 
-fylin = initLanguage("Fylin")
+fylin = init_Language("Fylin")
 fylin->hello() # My name is Fylin!
 ```

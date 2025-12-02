@@ -64,6 +64,7 @@ const (
 	tokenExcept   tokenType = "except"
 	tokenFinally  tokenType = "finally"
 	tokenAs       tokenType = "as"
+	tokenLambda   tokenType = "lambda"
 
 	tokenNewLine tokenType = "new line"
 	tokenIntab   tokenType = "intab"
@@ -493,4 +494,5 @@ var keywords = map[string]tokenType{
 	"finally":  tokenFinally,
 	"as":       tokenAs,
 	"pass":     tokenPass,
+	"lambda":   tokenLambda,
 }

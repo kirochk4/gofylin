@@ -134,6 +134,10 @@ type listLit struct {
 	elems []astExpr
 }
 
+type lambdaLit struct {
+	*defStmt
+}
+
 /* == marks ================================================================= */
 
 func (n badStmt) astStmt()       {}
@@ -162,6 +166,7 @@ func (n *numLit) astExpr()        {}
 func (n *strLit) astExpr()        {}
 func (n *dictLit) astExpr()       {}
 func (n *listLit) astExpr()       {}
+func (n *lambdaLit) astExpr()     {}
 
 func (n badStmt) astNode()       {}
 func (n *defStmt) astNode()      {}
@@ -189,6 +194,7 @@ func (n *numLit) astNode()        {}
 func (n *strLit) astNode()        {}
 func (n *dictLit) astNode()       {}
 func (n *listLit) astNode()       {}
+func (n *lambdaLit) astNode()     {}
 
 /* == print ================================================================= */
 
@@ -278,6 +284,12 @@ func (p *printer) writeNode(node astNode) {
 		p.write("[")
 		p.writeExprs(node.elems)
 		p.write("]")
+	case *lambdaLit:
+		p.write("lambda ")
+		p.writeVars(node.params)
+		p.write(": ")
+		p.writeNode(node.body[0].(*returnStmt).values[0])
+
 	case *ident:
 		p.write("%s", node.name)
 	default:

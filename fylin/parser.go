@@ -286,6 +286,8 @@ func (p *parser) expr(prec precedence) astExpr {
 		left = &numLit{float64(n)}
 	case tokenString:
 		left = &strLit{p.previous.literal[1 : len(p.previous.literal)-1]}
+	case tokenLambda:
+		left = p.lambdaLit()
 	case tokenIdentifier:
 		left = &ident{p.previous.literal}
 	case tokenMinus, tokenPlus, tokenNot:
@@ -323,6 +325,14 @@ func (p *parser) expr(prec precedence) astExpr {
 	}
 
 	return left
+}
+
+func (p *parser) lambdaLit() *lambdaLit {
+	lit := &lambdaLit{defStmt: &defStmt{}}
+	lit.params = p.lambdaParams()
+	lit.name = "(anonymous)"
+	lit.body = []astStmt{&returnStmt{[]astExpr{p.expr(precLowest)}}}
+	return lit
 }
 
 func (p *parser) propertyExpr(left astExpr) *indexExpr {
@@ -503,8 +513,24 @@ func (p *parser) defStmt() *defStmt {
 	return stmt
 }
 
-func (p *parser) params() []string {
-	params := []string{}
+func (p *parser) lambdaParams() []varName {
+	params := []varName{}
+	if p.match(tokenColon) {
+		return params
+	}
+	for {
+		p.consume(tokenIdentifier, "expect parameter name")
+		params = append(params, p.previous.literal)
+		if p.check(tokenColon) {
+			break
+		}
+	}
+	p.consume(tokenColon, "expect ':'")
+	return params
+}
+
+func (p *parser) params() []varName {
+	params := []varName{}
 	if p.match(tokenRightParen) {
 		return params
 	}
