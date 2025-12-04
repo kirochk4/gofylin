@@ -18,20 +18,25 @@ type Num float64
 type Str string
 
 type Func struct {
-	code    []astStmt
-	params  []varName
-	closure *env
+	Code    []astStmt
+	Params  []varName
+	Closure *env
 	Name    string
 }
 
 type NativeFunc struct {
-	code func(e *Evaluator, args []Value) Value
+	Code func(e *Evaluator, args []Value) Value
 	Name string
 }
 
 type Doc struct {
-	pairs map[Value]Value
-	proto *Doc
+	Pairs map[Value]Value
+	Proto *Doc
+}
+
+type Box struct {
+	Set func(index Value, value Value)
+	Get func(index Value) Value
 }
 
 func (v None) fyValue()        {}
@@ -41,6 +46,7 @@ func (v Str) fyValue()         {}
 func (v *Doc) fyValue()        {}
 func (v *Func) fyValue()       {}
 func (v *NativeFunc) fyValue() {}
+func (v *Box) fyValue()        {}
 
 func (v None) String() string { return "None" }
 func (v Bool) String() string {
@@ -56,10 +62,11 @@ func (v Str) String() string         { return string(v) }
 func (v *Doc) String() string        { return "[doc Doc]" }
 func (v *Func) String() string       { return "[func Func]" }
 func (v *NativeFunc) String() string { return "[native Func]" }
+func (v *Box) String() string        { return "[box Box]" }
 
 var nativePrintln = NativeFunc{
 	Name: "println",
-	code: func(e *Evaluator, args []Value) Value {
+	Code: func(e *Evaluator, args []Value) Value {
 		for i, arg := range args {
 			fmt.Print(arg)
 			if i != len(args)-1 {

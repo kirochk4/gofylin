@@ -58,7 +58,7 @@ func (e *Evaluator) Interpret(source []byte) (err error) {
 
 func (e *Evaluator) Call(function *Func) (val Value, err error) {
 	defer catch(func(exc runtimeException) { err = exc })
-	for _, stmt := range function.code {
+	for _, stmt := range function.Code {
 		e.eval(stmt)
 	}
 	return None{}, nil
@@ -79,18 +79,18 @@ func (e *Evaluator) eval(node astNode) Value {
 			&ident{node.name},
 			&Func{
 				Name:    node.name,
-				params:  node.params,
-				code:    node.body,
-				closure: e.env,
+				Params:  node.params,
+				Code:    node.body,
+				Closure: e.env,
 			},
 		)
 		return nil
 	case *lambdaLit:
 		return &Func{
 			Name:    node.name,
-			params:  node.params,
-			code:    node.body,
-			closure: e.env,
+			Params:  node.params,
+			Code:    node.body,
+			Closure: e.env,
 		}
 	case *decoStmt:
 		deco, ok := e.eval(node.deco).(*Func)
@@ -99,20 +99,20 @@ func (e *Evaluator) eval(node astNode) Value {
 		}
 		def := &Func{
 			Name:    node.def.name,
-			params:  node.def.params,
-			code:    node.def.body,
-			closure: e.env,
+			Params:  node.def.params,
+			Code:    node.def.body,
+			Closure: e.env,
 		}
 		decored := e.call(deco, []Value{def})
 		e.set(&ident{node.def.name}, decored)
 		return nil
 	case *dictLit:
 		doc := &Doc{
-			pairs: make(map[Value]Value, len(node.pairs)),
-			proto: nil,
+			Pairs: make(map[Value]Value, len(node.pairs)),
+			Proto: nil,
 		}
 		for key, val := range node.pairs {
-			doc.pairs[e.eval(key)] = e.eval(val)
+			doc.Pairs[e.eval(key)] = e.eval(val)
 		}
 		return doc
 	case *protoDictExpr:
@@ -121,20 +121,20 @@ func (e *Evaluator) eval(node astNode) Value {
 			Raise(Str("prototype must be 'doc' type"))
 		}
 		doc := &Doc{
-			pairs: make(map[Value]Value, len(node.dict.pairs)),
-			proto: proto,
+			Pairs: make(map[Value]Value, len(node.dict.pairs)),
+			Proto: proto,
 		}
 		for key, val := range node.dict.pairs {
-			doc.pairs[e.eval(key)] = e.eval(val)
+			doc.Pairs[e.eval(key)] = e.eval(val)
 		}
 		return doc
 	case *listLit:
 		doc := &Doc{
-			pairs: make(map[Value]Value, len(node.elems)),
-			proto: &protoArray,
+			Pairs: make(map[Value]Value, len(node.elems)),
+			Proto: &protoArray,
 		}
 		for key, val := range node.elems {
-			doc.pairs[Num(key)] = e.eval(val)
+			doc.Pairs[Num(key)] = e.eval(val)
 		}
 		return doc
 	case *infixExpr:
@@ -211,7 +211,7 @@ func (e *Evaluator) eval(node astNode) Value {
 func (e *Evaluator) call(callee Value, args []Value) Value {
 	native, ok := callee.(*NativeFunc)
 	if ok {
-		return native.code(e, args)
+		return native.Code(e, args)
 	}
 
 	called, ok := callee.(*Func)
@@ -219,19 +219,19 @@ func (e *Evaluator) call(callee Value, args []Value) Value {
 		Raise(Str("can only call functions"))
 	}
 
-	if len(args) < len(called.params) {
-		for range len(called.params) - len(args) {
+	if len(args) < len(called.Params) {
+		for range len(called.Params) - len(args) {
 			args = append(args, None{})
 		}
 	}
 
 	encl := e.env
-	e.env = newEnv(called.closure)
-	for i, param := range called.params {
+	e.env = newEnv(called.Closure)
+	for i, param := range called.Params {
 		e.env.store[param] = args[i]
 	}
 
-	ret := e.evalCode(called.code)
+	ret := e.evalCode(called.Code)
 
 	e.env = encl
 
@@ -335,10 +335,15 @@ func (e *Evaluator) set(to astExpr, val Value) {
 		e.env.store[to.name] = val
 	case *indexExpr:
 		toDoc, ok := e.eval(to.left).(*Doc)
+		if ok {
+			toDoc.Pairs[e.eval(to.index)] = val
+			return
+		}
+		toBox, ok := e.eval(to.left).(*Box)
 		if !ok {
 			Raise(Str("TODO"))
 		}
-		toDoc.pairs[e.eval(to.index)] = val
+		toBox.Set(e.eval(to.index), val)
 	default:
 		panic("set: unknown type")
 	}
@@ -381,13 +386,17 @@ func (e *Evaluator) get(from astExpr) Value {
 		Raise(Str("undefined variable"))
 	case *indexExpr:
 		toDoc, ok := e.eval(from.left).(*Doc)
+		if ok {
+			if v, ok := toDoc.Pairs[e.eval(from.index)]; ok {
+				return v
+			}
+			return None{}
+		}
+		toBox, ok := e.eval(from.left).(*Box)
 		if !ok {
 			Raise(Str("TODO"))
 		}
-		if v, ok := toDoc.pairs[e.eval(from.index)]; ok {
-			return v
-		}
-		return None{}
+		return toBox.Get(e.eval(from.index))
 	}
 	panic("get: unknown type")
 }
