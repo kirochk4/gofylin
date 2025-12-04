@@ -3,6 +3,7 @@ package fylin
 import (
 	"fmt"
 	"log"
+	"math"
 )
 
 type env struct {
@@ -130,7 +131,7 @@ func (e *Evaluator) eval(node astNode) Value {
 		case tokenBangEqual:
 			return !valuesEqual(l, r)
 		case tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual,
-			tokenMinus, tokenStar, tokenSlash:
+			tokenMinus, tokenStar, tokenSlash, tokenStarStar, tokenSlashSlash:
 			return numberOperation(l, r, node.opToken.tokenType)
 		case tokenPlus:
 			return operation(l, r, node.opToken.tokenType)
@@ -138,14 +139,16 @@ func (e *Evaluator) eval(node astNode) Value {
 			panic("eval infix expr: unknown operation")
 		}
 	case *whileStmt:
-		for valueToBool(e.eval(node.cond)) {
-			for _, stmt := range node.loop {
-				e.eval(stmt)
-			}
-		}
+		e.whileStmt(node)
+		return nil
+	case *tryStmt:
+		e.tryStmt(node)
 		return nil
 	case *exprStmt:
 		e.eval(node.expr)
+		return nil
+	case *raiseStmt:
+		Raise(e.eval(node.exc))
 		return nil
 	case *assignStmt:
 		rightVals := []Value{}
@@ -222,8 +225,56 @@ func (e *Evaluator) eval(node astNode) Value {
 	panic("eval: unknown node type")
 }
 
+func (e *Evaluator) whileStmt(node *whileStmt) {
+	defer catch(func(sig breakSignal) {})
+
+	loop := func() {
+		defer catch(func(sig continueSignal) {})
+
+		for _, stmt := range node.loop {
+			e.eval(stmt)
+		}
+	}
+
+	for valueToBool(e.eval(node.cond)) {
+		loop()
+	}
+}
+
+func (e *Evaluator) tryStmt(node *tryStmt) {
+	var exc Value
+	func() {
+		defer catch(func(sig runtimeException) { exc = sig.value })
+
+		for _, stmt := range node.try {
+			e.eval(stmt)
+		}
+	}()
+
+	var reRaise Value
+	func() {
+		defer catch(func(sig runtimeException) { reRaise = sig.value })
+
+		if exc != nil {
+			e.set(&ident{node.as}, exc)
+			for _, stmt := range node.except {
+				e.eval(stmt)
+			}
+		}
+	}()
+
+	for _, stmt := range node.finally {
+		e.eval(stmt)
+	}
+
+	if reRaise != nil {
+		Raise(reRaise)
+	}
+}
+
 func (e *Evaluator) evalCode(stmts []astStmt) (vals []Value) {
 	defer catch(func(sig returnSignal) { vals = sig })
+
 	for _, stmt := range stmts {
 		e.eval(stmt)
 	}
@@ -231,6 +282,8 @@ func (e *Evaluator) evalCode(stmts []astStmt) (vals []Value) {
 }
 
 type returnSignal []Value
+type continueSignal struct{}
+type breakSignal struct{}
 
 func (e *Evaluator) evalExprs(exprs []astExpr) []Value {
 	ret := []Value{}
@@ -350,6 +403,10 @@ func numberOperation(a, b Value, op tokenType) Value {
 		return an * bn
 	case tokenSlash:
 		return an / bn
+	case tokenStarStar:
+		return Num(math.Pow(float64(an), float64(bn)))
+	case tokenSlashSlash:
+		return Num(math.Floor(float64(an / bn)))
 	case tokenLess:
 		return Bool(an < bn)
 	case tokenLessEqual:

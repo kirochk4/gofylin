@@ -204,7 +204,7 @@ func (p *parser) raiseStmt() *raiseStmt {
 }
 
 func (p *parser) tryStmt() *tryStmt {
-	stmt := &tryStmt{}
+	stmt := &tryStmt{as: "_"}
 	stmt.try = p.block()
 	if p.match(tokenExcept) {
 		if p.match(tokenAs) {

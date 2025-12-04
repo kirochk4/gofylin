@@ -33,6 +33,9 @@ const (
 	tokenGreaterEqual tokenType = "greater equal"
 	tokenLess         tokenType = "less"
 	tokenLessEqual    tokenType = "less equal"
+	tokenSlashSlash   tokenType = "slash slash"
+	tokenStarStar     tokenType = "star star"
+	tokenArrow        tokenType = "arrow"
 	// special
 	tokenIdentifier tokenType = "identifier"
 	tokenString     tokenType = "string"
@@ -100,24 +103,26 @@ const (
 )
 
 type scanner struct {
-	source  []byte
-	sp      int // source pointer
-	start   int
-	line    int
-	newLine bool
-	tabs    []int
-	curTab  int
+	source   []byte
+	sp       int // source pointer
+	start    int
+	line     int
+	newLine  bool
+	inParens int
+	tabs     []int
+	curTab   int
 	tabType
 }
 
 func newScanner(source []byte) scanner {
 	return scanner{
-		source:  source,
-		sp:      0,
-		line:    1,
-		newLine: false,
-		curTab:  0,
-		tabs:    []int{0},
+		source:   source,
+		sp:       0,
+		line:     1,
+		newLine:  false,
+		inParens: 0,
+		curTab:   0,
+		tabs:     []int{0},
 	}
 }
 
@@ -127,7 +132,7 @@ func (s *scanner) scanToken() token {
 
 	s.start = s.sp
 
-	if s.newLine && (startLine < s.line || s.isAtEnd()) {
+	if s.newLine && (startLine < s.line || s.isAtEnd()) && s.inParens == 0 {
 		return s.makeToken(tokenNewLine)
 	}
 
@@ -178,27 +183,33 @@ func (s *scanner) scanToken() token {
 	}
 	switch char {
 	case '(':
+		s.inParens++
 		return s.makeToken(tokenLeftParen)
 	case ')':
+		s.inParens--
 		return s.makeToken(tokenRightParen)
 	case '{':
+		s.inParens++
 		return s.makeToken(tokenLeftBrace)
 	case '}':
+		s.inParens--
 		return s.makeToken(tokenRightBrace)
 	case '[':
+		s.inParens++
 		return s.makeToken(tokenLeftBracket)
 	case ']':
+		s.inParens--
 		return s.makeToken(tokenRightBracket)
 	case ',':
 		return s.makeToken(tokenComma)
 	case '-':
-		return s.makeToken(tokenMinus)
+		t := tokenMinus
+		if s.match('>') {
+			t = tokenArrow
+		}
+		return s.makeToken(t)
 	case '+':
 		return s.makeToken(tokenPlus)
-	case '/':
-		return s.makeToken(tokenSlash)
-	case '*':
-		return s.makeToken(tokenStar)
 	case ':':
 		return s.makeToken(tokenColon)
 	case '.':
@@ -209,6 +220,18 @@ func (s *scanner) scanToken() token {
 		if s.match('=') {
 			return s.makeToken(tokenBangEqual)
 		}
+	case '/':
+		t := tokenSlash
+		if s.match('/') {
+			t = tokenSlashSlash
+		}
+		return s.makeToken(t)
+	case '*':
+		t := tokenStar
+		if s.match('*') {
+			t = tokenStarStar
+		}
+		return s.makeToken(t)
 	case '=':
 		t := tokenEqual
 		if s.match('=') {
@@ -319,7 +342,7 @@ func (s *scanner) skipWhitespace() {
 	line := s.line
 	var tab int
 	defer func() {
-		if s.line > line {
+		if s.line > line && s.inParens == 0 {
 			s.curTab = tab
 		}
 	}()
@@ -340,13 +363,9 @@ func (s *scanner) skipWhitespace() {
 			tab = 0
 			s.line++
 			s.advance()
-		case '/':
-			if s.peek() == '/' {
-				for s.current() != '\n' && !s.isAtEnd() {
-					s.advance()
-				}
-			} else {
-				return
+		case '#':
+			for s.current() != '\n' && !s.isAtEnd() {
+				s.advance()
 			}
 		default:
 			return
