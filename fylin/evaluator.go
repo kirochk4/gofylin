@@ -92,6 +92,20 @@ func (e *Evaluator) eval(node astNode) Value {
 			code:    node.body,
 			closure: e.env,
 		}
+	case *decoStmt:
+		deco, ok := e.eval(node.deco).(*Func)
+		if !ok {
+			Raise(Str("decorator must be function"))
+		}
+		def := &Func{
+			Name:    node.def.name,
+			params:  node.def.params,
+			code:    node.def.body,
+			closure: e.env,
+		}
+		decored := e.call(deco, []Value{def})
+		e.set(&ident{node.def.name}, decored)
+		return nil
 	case *dictLit:
 		doc := &Doc{
 			pairs: make(map[Value]Value, len(node.pairs)),
@@ -173,39 +187,8 @@ func (e *Evaluator) eval(node astNode) Value {
 		return e.get(node)
 	case *callExpr:
 		left := e.eval(node.left)
-		native, ok := left.(*NativeFunc)
-		if ok {
-			args := e.evalExprs(node.args)
-			return native.code(e, args)
-		}
-
-		callee, ok := left.(*Func)
-		if !ok {
-			Raise(Str("can only call functions"))
-		}
-
 		args := e.evalExprs(node.args)
-
-		if len(args) < len(callee.params) {
-			for range len(callee.params) - len(args) {
-				args = append(args, None{})
-			}
-		}
-
-		encl := e.env
-		e.env = newEnv(callee.closure)
-		for i, param := range callee.params {
-			e.env.store[param] = args[i]
-		}
-
-		ret := e.evalCode(callee.code)
-
-		e.env = encl
-
-		if ret != nil {
-			return ret[0]
-		}
-		return None{}
+		return e.call(left, args)
 	case *returnStmt:
 		panic(returnSignal(e.evalExprs(node.values)))
 	case *ifStmt:
@@ -223,6 +206,39 @@ func (e *Evaluator) eval(node astNode) Value {
 		return e.get(node)
 	}
 	panic("eval: unknown node type")
+}
+
+func (e *Evaluator) call(callee Value, args []Value) Value {
+	native, ok := callee.(*NativeFunc)
+	if ok {
+		return native.code(e, args)
+	}
+
+	called, ok := callee.(*Func)
+	if !ok {
+		Raise(Str("can only call functions"))
+	}
+
+	if len(args) < len(called.params) {
+		for range len(called.params) - len(args) {
+			args = append(args, None{})
+		}
+	}
+
+	encl := e.env
+	e.env = newEnv(called.closure)
+	for i, param := range called.params {
+		e.env.store[param] = args[i]
+	}
+
+	ret := e.evalCode(called.code)
+
+	e.env = encl
+
+	if ret != nil {
+		return ret[0]
+	}
+	return None{}
 }
 
 func (e *Evaluator) whileStmt(node *whileStmt) {

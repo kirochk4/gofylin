@@ -29,6 +29,11 @@ type declStmt struct {
 	vars []varName
 }
 
+type decoStmt struct {
+	deco astExpr
+	def  *defStmt
+}
+
 type defStmt struct {
 	name   string
 	params []varName
@@ -141,6 +146,7 @@ type lambdaLit struct {
 /* == marks ================================================================= */
 
 func (n badStmt) astStmt()       {}
+func (n *decoStmt) astStmt()     {}
 func (n *defStmt) astStmt()      {}
 func (n *exprStmt) astStmt()     {}
 func (n *ifStmt) astStmt()       {}
@@ -169,6 +175,7 @@ func (n *listLit) astExpr()       {}
 func (n *lambdaLit) astExpr()     {}
 
 func (n badStmt) astNode()       {}
+func (n *decoStmt) astNode()     {}
 func (n *defStmt) astNode()      {}
 func (n *exprStmt) astNode()     {}
 func (n *ifStmt) astNode()       {}
@@ -240,6 +247,31 @@ func (p *printer) writeNode(node astNode) {
 		p.writeTab()
 		p.write("else")
 		p.writeBlock(node.else_)
+	case *tryStmt:
+		p.write("try")
+		p.writeBlock(node.try)
+		if node.except != nil {
+			p.write("\n")
+			p.writeTab()
+			p.write("expect as ")
+			p.write("%s", node.as)
+			p.writeBlock(node.except)
+		}
+		if node.finally != nil {
+			p.write("\n")
+			p.writeTab()
+			p.write("finally")
+			p.writeBlock(node.finally)
+		}
+	case *decoStmt:
+		p.write("@")
+		p.writeNode(node.deco)
+		p.write("\n")
+		p.writeTab()
+		p.writeNode(node.def)
+	case *raiseStmt:
+		p.write("raise ")
+		p.writeNode(node.exc)
 	case *whileStmt:
 		p.write("while ")
 		p.writeNode(node.cond)

@@ -127,6 +127,8 @@ func (p *parser) stmt() (stmt astStmt) {
 		return p.forStmt()
 	} else if p.match(tokenDef) {
 		return p.defStmt()
+	} else if p.match(tokenDog) {
+		return p.decoStmt()
 	} else if p.match(tokenIf) {
 		return p.ifStmt()
 	} else if p.match(tokenBreak) {
@@ -510,6 +512,15 @@ func (p *parser) defStmt() *defStmt {
 	p.defCtx = &defCtx{p.defCtx, nil}
 	stmt.body = p.block()
 	p.defCtx = p.defCtx.encl
+	return stmt
+}
+
+func (p *parser) decoStmt() *decoStmt {
+	stmt := &decoStmt{}
+	stmt.deco = p.expr(precLowest)
+	p.consume(tokenNewLine, "expect new line")
+	p.consume(tokenDef, "expect 'def'")
+	stmt.def = p.defStmt()
 	return stmt
 }
 
