@@ -6,7 +6,15 @@ import (
 	"strconv"
 )
 
+type defType int
+
+const (
+	defMain defType = iota
+	defFunc
+)
+
 type defCtx struct {
+	t    defType
 	encl *defCtx
 	*loopCtx
 }
@@ -27,7 +35,7 @@ func newParser(source []byte) *parser {
 	return &parser{
 		scanner: newScanner(source),
 		errors:  make([]string, 0),
-		defCtx:  nil,
+		defCtx:  &defCtx{defMain, nil, nil},
 	}
 }
 
@@ -225,7 +233,7 @@ func (p *parser) tryStmt() *tryStmt {
 }
 
 func (p *parser) returnStmt() *returnStmt {
-	if p.defCtx == nil {
+	if p.defCtx.t == defMain {
 		p.errorAtPrevious("'return' outside function")
 	}
 	stmt := &returnStmt{
@@ -509,7 +517,7 @@ func (p *parser) defStmt() *defStmt {
 	stmt.name = p.previous.literal
 	p.consume(tokenLeftParen, "expect '('")
 	stmt.params = p.params()
-	p.defCtx = &defCtx{p.defCtx, nil}
+	p.defCtx = &defCtx{defFunc, p.defCtx, nil}
 	stmt.body = p.block()
 	p.defCtx = p.defCtx.encl
 	return stmt
