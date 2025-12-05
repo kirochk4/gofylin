@@ -38,7 +38,13 @@ func runFile(args []string) error {
 	if err != nil {
 		return fmt.Errorf("run file: %w", err)
 	}
-	return fylin.New().Interpret(source)
+	e := fylin.New()
+	argv := &fylin.Doc{Pairs: make(map[fylin.Value]fylin.Value, len(args))}
+	for i, arg := range args {
+		argv.Pairs[fylin.Num(i)] = fylin.Str(arg)
+	}
+	e.Globals["argv"] = argv
+	return e.Interpret(source)
 }
 
 func runRepl() error {
