@@ -2,9 +2,16 @@ package fylin
 
 import (
 	"fmt"
-	"log"
 	"math"
 )
+
+type returnSignal []Value
+type continueSignal struct{}
+type breakSignal struct{}
+
+type runtimeException struct {
+	value Value
+}
 
 type env struct {
 	store map[varName]Value
@@ -36,13 +43,13 @@ func New() *Evaluator {
 
 func (e *Evaluator) Interpret(source []byte) (err error) {
 	defer catch(func(exc runtimeException) {
-		fmt.Println(exc)
+		fmt.Println(exc) // remove this!
 		err = exc
 	})
 	p := newParser(source)
 	ast, err := p.parse()
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("compile error: %w", err)
 	}
 	if debugPrintAST {
 		p := &printer{}
@@ -56,44 +63,46 @@ func (e *Evaluator) Interpret(source []byte) (err error) {
 	return
 }
 
-func (e *Evaluator) Call(function *Func) (val Value, err error) {
+func (e *Evaluator) Call(function *Func) (vals []Value, err error) {
 	defer catch(func(exc runtimeException) { err = exc })
+	defer catch(func(exc returnSignal) { vals = exc })
 	for _, stmt := range function.Code {
 		e.eval(stmt)
 	}
-	return None{}, nil
+	return one(None{}), nil
 }
 
-func (e *Evaluator) eval(node astNode) Value {
+func (e *Evaluator) evalOne(node astNode) Value {
+	return e.eval(node)[0]
+}
+
+func (e *Evaluator) eval(node astNode) []Value {
 	switch node := node.(type) {
 	case *noneLit:
-		return None{}
+		return one(None{})
 	case *boolLit:
-		return Bool(node.value)
+		return one(Bool(node.value))
 	case *numLit:
-		return Num(node.value)
+		return one(Num(node.value))
 	case *strLit:
-		return Str(node.value)
+		return one(Str(node.value))
 	case *defStmt:
-		e.set(
-			&ident{node.name},
-			&Func{
-				Name:    node.name,
-				Params:  node.params,
-				Code:    node.body,
-				Closure: e.env,
-			},
-		)
-		return nil
-	case *lambdaLit:
-		return &Func{
+		e.env.store[node.name] = &Func{
 			Name:    node.name,
 			Params:  node.params,
 			Code:    node.body,
 			Closure: e.env,
 		}
+		return nil
+	case *lambdaLit:
+		return one(&Func{
+			Name:    node.name,
+			Params:  node.params,
+			Code:    node.body,
+			Closure: e.env,
+		})
 	case *decoStmt:
-		deco, ok := e.eval(node.deco).(*Func)
+		deco, ok := e.evalOne(node.deco).(*Func)
 		if !ok {
 			Raise(Str("decorator must be function"))
 		}
@@ -103,8 +112,8 @@ func (e *Evaluator) eval(node astNode) Value {
 			Code:    node.def.body,
 			Closure: e.env,
 		}
-		decored := e.call(deco, []Value{def})
-		e.set(&ident{node.def.name}, decored)
+		decored := deco.Call(e, one(def))[0]
+		e.env.store[node.def.name] = decored
 		return nil
 	case *dictLit:
 		doc := &Doc{
@@ -112,43 +121,53 @@ func (e *Evaluator) eval(node astNode) Value {
 			Proto: nil,
 		}
 		for key, val := range node.pairs {
-			doc.Pairs[e.eval(key)] = e.eval(val)
+			v := e.evalOne(val)
+			k := e.evalOne(key)
+			if _, none := k.(None); none {
+				continue
+			}
+			doc.Pairs[k] = v
 		}
-		return doc
+		return one(doc)
 	case *protoDictExpr:
-		proto, ok := e.eval(node.proto).(*Doc)
+		proto, ok := e.evalOne(node.proto).(Prototype)
 		if !ok {
-			Raise(Str("prototype must be 'doc' type"))
+			Raise(Str("wrong prototype type"))
 		}
 		doc := &Doc{
 			Pairs: make(map[Value]Value, len(node.dict.pairs)),
-			Proto: proto,
+			Proto: &proto,
 		}
 		for key, val := range node.dict.pairs {
-			doc.Pairs[e.eval(key)] = e.eval(val)
+			v := e.evalOne(val)
+			k := e.evalOne(key)
+			if _, none := k.(None); none {
+				continue
+			}
+			doc.Pairs[k] = v
 		}
-		return doc
+		return one(doc)
 	case *listLit:
 		doc := &Doc{
 			Pairs: make(map[Value]Value, len(node.elems)),
 			Proto: &protoArray,
 		}
 		for key, val := range node.elems {
-			doc.Pairs[Num(key)] = e.eval(val)
+			doc.Pairs[Num(key)] = e.evalOne(val) // maybe many?
 		}
-		return doc
+		return one(doc)
 	case *infixExpr:
-		l, r := e.eval(node.left), e.eval(node.right)
+		l, r := e.evalOne(node.left), e.evalOne(node.right)
 		switch node.opToken.tokenType {
 		case tokenEqual:
-			return valuesEqual(l, r)
+			return one(valuesEqual(l, r))
 		case tokenBangEqual:
-			return !valuesEqual(l, r)
+			return one(!valuesEqual(l, r))
 		case tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual,
 			tokenMinus, tokenStar, tokenSlash, tokenStarStar, tokenSlashSlash:
-			return numberOperation(l, r, node.opToken.tokenType)
+			return one(numberOperation(l, r, node.opToken.tokenType))
 		case tokenPlus:
-			return operation(l, r, node.opToken.tokenType)
+			return one(operation(l, r, node.opToken.tokenType))
 		default:
 			panic("eval infix expr: unknown operation")
 		}
@@ -162,12 +181,16 @@ func (e *Evaluator) eval(node astNode) Value {
 		e.eval(node.expr)
 		return nil
 	case *raiseStmt:
-		Raise(e.eval(node.exc))
+		Raise(e.evalOne(node.exc))
 		return nil
 	case *assignStmt:
 		rightVals := []Value{}
-		for _, r := range node.rights {
-			rightVals = append(rightVals, e.eval(r))
+		for i, r := range node.rights {
+			if i != len(node.rights)-1 {
+				rightVals = append(rightVals, e.evalOne(r))
+			} else {
+				rightVals = append(rightVals, e.eval(r)...)
+			}
 		}
 		if len(node.lefts) > len(rightVals) {
 			for range len(node.lefts) - len(rightVals) {
@@ -175,7 +198,7 @@ func (e *Evaluator) eval(node astNode) Value {
 			}
 		}
 		for i, l := range node.lefts {
-			e.set(l, rightVals[i])
+			e.assign(l, rightVals[i])
 		}
 		return nil
 	case *declStmt:
@@ -184,15 +207,18 @@ func (e *Evaluator) eval(node astNode) Value {
 		}
 		return nil
 	case *ident:
-		return e.get(node)
+		return one(e.resolveVariable(node))
 	case *callExpr:
-		left := e.eval(node.left)
+		left, ok := e.evalOne(node.left).(Callable)
+		if !ok {
+			Raise(Str("call not collable"))
+		}
 		args := e.evalExprs(node.args)
-		return e.call(left, args)
+		return left.Call(e, args)
 	case *returnStmt:
 		panic(returnSignal(e.evalExprs(node.values)))
 	case *ifStmt:
-		if valueToBool(e.eval(node.cond)) {
+		if valueToBool(e.evalOne(node.cond)) {
 			for _, stmt := range node.then {
 				e.eval(stmt)
 			}
@@ -203,42 +229,28 @@ func (e *Evaluator) eval(node astNode) Value {
 		}
 		return nil
 	case *indexExpr:
-		return e.get(node)
+		index := e.evalOne(node.index)
+		from, ok := e.evalOne(node.left).(Prototype)
+		if !ok {
+			Raise(Str("can't get index"))
+		}
+		return one(from.Index(index))
+	case *arrowExpr:
+		index := e.evalOne(node.index)
+		from, ok := e.evalOne(node.left).(Prototype)
+		if !ok {
+			Raise(Str("can't get index"))
+		}
+		if from.Prototype() != nil {
+			v := (*from.Prototype()).Index(index)
+			if f, ok := v.(Callable); ok {
+				v = &Method{from.(Value), f}
+			}
+			return one(v)
+		}
+		return one(None{})
 	}
 	panic("eval: unknown node type")
-}
-
-func (e *Evaluator) call(callee Value, args []Value) Value {
-	native, ok := callee.(*NativeFunc)
-	if ok {
-		return native.Code(e, args)
-	}
-
-	called, ok := callee.(*Func)
-	if !ok {
-		Raise(Str("can only call functions"))
-	}
-
-	if len(args) < len(called.Params) {
-		for range len(called.Params) - len(args) {
-			args = append(args, None{})
-		}
-	}
-
-	encl := e.env
-	e.env = newEnv(called.Closure)
-	for i, param := range called.Params {
-		e.env.store[param] = args[i]
-	}
-
-	ret := e.evalCode(called.Code)
-
-	e.env = encl
-
-	if ret != nil {
-		return ret[0]
-	}
-	return None{}
 }
 
 func (e *Evaluator) whileStmt(node *whileStmt) {
@@ -252,7 +264,7 @@ func (e *Evaluator) whileStmt(node *whileStmt) {
 		}
 	}
 
-	for valueToBool(e.eval(node.cond)) {
+	for valueToBool(e.evalOne(node.cond)) {
 		loop()
 	}
 }
@@ -272,7 +284,7 @@ func (e *Evaluator) tryStmt(node *tryStmt) {
 		defer catch(func(sig runtimeException) { reRaise = sig.value })
 
 		if exc != nil {
-			e.set(&ident{node.as}, exc)
+			e.env.store[node.as] = exc
 			for _, stmt := range node.except {
 				e.eval(stmt)
 			}
@@ -288,117 +300,102 @@ func (e *Evaluator) tryStmt(node *tryStmt) {
 	}
 }
 
-func (e *Evaluator) evalCode(stmts []astStmt) (vals []Value) {
-	defer catch(func(sig returnSignal) { vals = sig })
-
-	for _, stmt := range stmts {
-		e.eval(stmt)
-	}
-	return
-}
-
-type returnSignal []Value
-type continueSignal struct{}
-type breakSignal struct{}
-
 func (e *Evaluator) evalExprs(exprs []astExpr) []Value {
 	ret := []Value{}
-	for _, arg := range exprs {
-		ret = append(ret, e.eval(arg))
+	for i, arg := range exprs {
+		if i != len(exprs)-1 {
+			ret = append(ret, e.evalOne(arg))
+		} else {
+			ret = append(ret, e.eval(arg)...)
+		}
 	}
 	return ret
 }
 
-func (e *Evaluator) set(to astExpr, val Value) {
-	switch to := to.(type) {
-	case *ident:
-		if t, ok := e.env.types[to.name]; ok {
-			switch t {
-			case varLocal:
-				e.env.store[to.name] = val
-				return
-			case varNonLocal:
-				env := e.env.encl
-				for env != nil {
-					if _, ok := env.store[to.name]; ok {
-						env.store[to.name] = val
-						return
-					}
-					env = env.encl
+func (e *Evaluator) resolveVariable(ident *ident) Value {
+	if t, ok := e.env.types[ident.name]; ok {
+		switch t {
+		case varLocal:
+			if v, ok := e.env.store[ident.name]; ok {
+				return v
+			}
+		case varNonLocal:
+			env := e.env.encl
+			for env != nil {
+				if v, ok := env.store[ident.name]; ok {
+					return v
 				}
-				Raise(Str("undefined variable"))
-			case varGlobal:
-				e.Globals[to.name] = val
-				return
+				env = env.encl
+			}
+		case varGlobal:
+			if v, ok := e.Globals[ident.name]; ok {
+				return v
 			}
 		}
-		e.env.store[to.name] = val
-	case *indexExpr:
-		toDoc, ok := e.eval(to.left).(*Doc)
-		if ok {
-			toDoc.Pairs[e.eval(to.index)] = val
-			return
+		Raise(Str("undefined variable"))
+	}
+
+	env := e.env
+	for env != nil {
+		if v, ok := env.store[ident.name]; ok {
+			return v
 		}
-		toBox, ok := e.eval(to.left).(*Box)
-		if !ok {
+		env = env.encl
+	}
+	if v, ok := e.Globals[ident.name]; ok {
+		return v
+	}
+	Raise(Str("undefined variable"))
+	return nil
+}
+
+func (e *Evaluator) assign(to astExpr, val Value) {
+	switch to := to.(type) {
+	case *ident:
+		e.assignToVariable(to.name, val)
+	case *indexExpr:
+		index := e.evalOne(to.index)
+		left := e.evalOne(to.left)
+		switch left := left.(type) {
+		case *Doc:
+			if _, del := val.(None); del {
+				delete(left.Pairs, index)
+				return
+			}
+			left.Pairs[index] = val
+		case *Box:
+			left.Setter(index, val)
+		default:
 			Raise(Str("TODO"))
 		}
-		toBox.Set(e.eval(to.index), val)
 	default:
 		panic("set: unknown type")
 	}
 }
 
-func (e *Evaluator) get(from astExpr) Value {
-	switch from := from.(type) {
-	case *ident:
-		if t, ok := e.env.types[from.name]; ok {
-			switch t {
-			case varLocal:
-				if v, ok := e.env.store[from.name]; ok {
-					return v
+func (e *Evaluator) assignToVariable(variable varName, val Value) {
+	if t, ok := e.env.types[variable]; ok {
+		switch t {
+		case varLocal:
+			e.env.store[variable] = val
+			return
+		case varNonLocal:
+			env := e.env.encl
+			for env != nil {
+				if _, ok := env.store[variable]; ok {
+					env.store[variable] = val
+					return
 				}
-			case varNonLocal:
-				env := e.env.encl
-				for env != nil {
-					if v, ok := env.store[from.name]; ok {
-						return v
-					}
-					env = env.encl
-				}
-			case varGlobal:
-				if v, ok := e.Globals[from.name]; ok {
-					return v
-				}
+				env = env.encl
 			}
-			Raise(Str("undefined variable"))
-		}
-		env := e.env
-		for env != nil {
-			if v, ok := env.store[from.name]; ok {
-				return v
-			}
-			env = env.encl
-		}
-		if v, ok := e.Globals[from.name]; ok {
-			return v
+		case varGlobal:
+			e.Globals[variable] = val
+			return
 		}
 		Raise(Str("undefined variable"))
-	case *indexExpr:
-		toDoc, ok := e.eval(from.left).(*Doc)
-		if ok {
-			if v, ok := toDoc.Pairs[e.eval(from.index)]; ok {
-				return v
-			}
-			return None{}
-		}
-		toBox, ok := e.eval(from.left).(*Box)
-		if !ok {
-			Raise(Str("TODO"))
-		}
-		return toBox.Get(e.eval(from.index))
 	}
-	panic("get: unknown type")
+
+	e.env.store[variable] = val
 }
 
 func valueToBool(val Value) Bool {
@@ -461,10 +458,6 @@ func operation(a, b Value, op tokenType) Value {
 	panic("operation: unknown operation")
 }
 
-type runtimeException struct {
-	value Value
-}
-
 func (exc runtimeException) Error() string {
 	return fmt.Sprint(exc.value)
 }
@@ -472,3 +465,5 @@ func (exc runtimeException) Error() string {
 func Raise(exception Value) {
 	panic(runtimeException{exception})
 }
+
+func one(val Value) []Value { return []Value{val} }

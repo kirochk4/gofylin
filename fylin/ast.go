@@ -108,6 +108,11 @@ type indexExpr struct {
 	index astExpr
 }
 
+type arrowExpr struct {
+	left  astExpr
+	index astExpr
+}
+
 type protoDictExpr struct {
 	proto astExpr
 	dict  *dictLit
@@ -164,6 +169,7 @@ func (n *infixExpr) astExpr()     {}
 func (n *prefixExpr) astExpr()    {}
 func (n *callExpr) astExpr()      {}
 func (n *indexExpr) astExpr()     {}
+func (n *arrowExpr) astExpr()     {}
 func (n *protoDictExpr) astExpr() {}
 func (n *ident) astExpr()         {}
 func (n *noneLit) astExpr()       {}
@@ -193,6 +199,7 @@ func (n *infixExpr) astNode()     {}
 func (n *prefixExpr) astNode()    {}
 func (n *callExpr) astNode()      {}
 func (n *indexExpr) astNode()     {}
+func (n *arrowExpr) astNode()     {}
 func (n *protoDictExpr) astNode() {}
 func (n *ident) astNode()         {}
 func (n *noneLit) astNode()       {}
@@ -297,6 +304,11 @@ func (p *printer) writeNode(node astNode) {
 	case *declStmt:
 		p.write("%s ", string(node.varType))
 		p.writeVars(node.vars)
+	case *arrowExpr:
+		p.writeNode(node.left)
+		p.write("->[")
+		p.writeNode(node.index)
+		p.write("]")
 
 	case *noneLit:
 		p.write("None")

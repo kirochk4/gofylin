@@ -3,10 +3,10 @@
 # Fylin (Fython)
 
 ```python
-Language = {name = "Anon"}
+Language = { name: "Anon" }
 
 def init_Language(name):
-    return Language{name}
+    return Language{ name }
 
 @method(Language, "hello")
 def _hello(self):

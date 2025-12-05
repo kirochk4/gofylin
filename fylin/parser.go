@@ -329,6 +329,8 @@ func (p *parser) expr(prec precedence) astExpr {
 			left = p.callExpr(left)
 		case tokenLeftBrace:
 			left = p.protoDictExpr(left)
+		case tokenArrow:
+			left = p.arrowExpr(left)
 		default:
 			panic("expr: what?")
 		}
@@ -360,6 +362,20 @@ func (p *parser) indexExpr(left astExpr) *indexExpr {
 	}
 	expr.index = p.expr(precLowest)
 	p.consume(tokenRightBracket, "expect ']'")
+	return expr
+}
+
+func (p *parser) arrowExpr(left astExpr) *arrowExpr {
+	expr := &arrowExpr{
+		left: left,
+	}
+	if p.match(tokenLeftBracket) {
+		expr.index = p.expr(precLowest)
+		p.consume(tokenRightBracket, "expect ']'")
+	} else {
+		p.consume(tokenIdentifier, "expect property name")
+		expr.index = &strLit{p.previous.literal}
+	}
 	return expr
 }
 
@@ -398,7 +414,15 @@ func (p *parser) dictLit() *dictLit {
 		return lit
 	}
 	for {
-		key := p.expr(precLowest)
+		var key astExpr
+		if p.match(tokenLeftBracket) {
+			key = p.expr(precLowest)
+			p.consume(tokenRightBracket, "expect ']'")
+		} else if p.match(tokenIdentifier) {
+			key = &strLit{p.previous.literal}
+		} else {
+			p.errorAtCurrent("expect key")
+		}
 		p.consume(tokenColon, "expect ':'")
 		val := p.expr(precLowest)
 		lit.pairs[key] = val
@@ -442,7 +466,7 @@ const (
 	precTerm              // + -
 	precFact              // * /
 	precUnary             // not - +
-	precCall              // . () {} []
+	precCall              // . () {} [] ->
 	precHighest
 )
 
@@ -469,6 +493,7 @@ var precedences = map[tokenType]precedence{
 	tokenLeftParen:   precCall,
 	tokenLeftBracket: precCall,
 	tokenLeftBrace:   precCall,
+	tokenArrow:       precCall,
 }
 
 func (p *parser) whileStmt() *whileStmt {
