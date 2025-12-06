@@ -1,6 +1,7 @@
 package fylin
 
 import (
+	"errors"
 	"fmt"
 	"math"
 )
@@ -64,6 +65,9 @@ func (e *Evaluator) Interpret(source []byte) (err error) {
 }
 
 func (e *Evaluator) Call(callee Callable, args []Value) (vals []Value, err error) {
+	if callee == nil {
+		return nil, errors.New("callee is nil")
+	}
 	defer catch(func(exc runtimeException) { err = exc })
 
 	return callee.call(e, args), nil
@@ -99,7 +103,7 @@ func (e *Evaluator) eval(node astNode) []Value {
 			Closure: e.env,
 		})
 	case *decoStmt:
-		deco, ok := e.evalOne(node.deco).(*Func)
+		deco, ok := e.evalOne(node.deco).(Callable)
 		if !ok {
 			Raise(Str("decorator must be function"))
 		}
