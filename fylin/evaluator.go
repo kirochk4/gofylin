@@ -63,13 +63,10 @@ func (e *Evaluator) Interpret(source []byte) (err error) {
 	return
 }
 
-func (e *Evaluator) Call(function *Func) (vals []Value, err error) {
+func (e *Evaluator) Call(callee Callable, args []Value) (vals []Value, err error) {
 	defer catch(func(exc runtimeException) { err = exc })
-	defer catch(func(exc returnSignal) { vals = exc })
-	for _, stmt := range function.Code {
-		e.eval(stmt)
-	}
-	return one(None{}), nil
+
+	return callee.call(e, args), nil
 }
 
 func (e *Evaluator) evalOne(node astNode) Value {
@@ -112,7 +109,7 @@ func (e *Evaluator) eval(node astNode) []Value {
 			Code:    node.def.body,
 			Closure: e.env,
 		}
-		decored := deco.Call(e, one(def))[0]
+		decored := deco.call(e, one(def))[0]
 		e.env.store[node.def.name] = decored
 		return nil
 	case *dictLit:
@@ -214,7 +211,7 @@ func (e *Evaluator) eval(node astNode) []Value {
 			Raise(Str("call not collable"))
 		}
 		args := e.evalExprs(node.args)
-		return left.Call(e, args)
+		return left.call(e, args)
 	case *returnStmt:
 		panic(returnSignal(e.evalExprs(node.values)))
 	case *ifStmt:

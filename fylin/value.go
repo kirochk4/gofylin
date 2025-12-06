@@ -10,12 +10,14 @@ type Value interface {
 }
 
 type Prototype interface {
+	Value
 	Index(key Value) Value
 	Prototype() *Prototype
 }
 
 type Callable interface {
-	Call(e *Evaluator, args []Value) []Value
+	Value
+	call(e *Evaluator, args []Value) []Value
 }
 
 type None struct{}
@@ -33,7 +35,7 @@ type Func struct {
 	Name    string
 }
 
-func (f *Func) Call(e *Evaluator, args []Value) []Value {
+func (f *Func) call(e *Evaluator, args []Value) []Value {
 	if len(args) < len(f.Params) {
 		for range len(f.Params) - len(args) {
 			args = append(args, None{})
@@ -68,7 +70,7 @@ type NativeFunc struct {
 	Name string
 }
 
-func (nf *NativeFunc) Call(e *Evaluator, args []Value) []Value {
+func (nf *NativeFunc) call(e *Evaluator, args []Value) []Value {
 	return nf.Code(e, args)
 }
 
@@ -77,9 +79,9 @@ type Method struct {
 	method Callable
 }
 
-func (m *Method) Call(e *Evaluator, args []Value) []Value {
+func (m *Method) call(e *Evaluator, args []Value) []Value {
 	args = append([]Value{m.self}, args...)
-	return m.method.Call(e, args)
+	return m.method.call(e, args)
 }
 
 type Doc struct {
