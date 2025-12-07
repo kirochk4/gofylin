@@ -21,6 +21,7 @@ const (
 	tokenMinus        tokenType = "minus"
 	tokenPlus         tokenType = "plus"
 	tokenSlash        tokenType = "slash"
+	tokenPersent      tokenType = "persent"
 	tokenStar         tokenType = "star"
 	tokenDot          tokenType = "dot"
 	tokenColon        tokenType = "colon"
@@ -212,6 +213,8 @@ func (s *scanner) scanToken() token {
 		return s.makeToken(tokenPlus)
 	case ':':
 		return s.makeToken(tokenColon)
+	case '%':
+		return s.makeToken(tokenPersent)
 	case '.':
 		return s.makeToken(tokenDot)
 	case '@':

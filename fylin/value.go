@@ -2,6 +2,7 @@ package fylin
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"strconv"
 )
 
@@ -166,7 +167,22 @@ var nativePrintln = NativeFunc{
 	},
 }
 
-var protoArray Prototype = &Doc{map[Value]Value{}, nil}
+var nativeRandom = NativeFunc{
+	Name: "random",
+	Code: func(e *Evaluator, args []Value) []Value {
+		return one(Num(rand.Float64()))
+	},
+}
+
+var protoArray Prototype = &Doc{map[Value]Value{
+	Str("length"): &NativeFunc{
+		Name: "length",
+		Code: func(e *Evaluator, args []Value) []Value {
+			d := args[0].(*Doc)
+			return one(Num(len(d.Pairs)))
+		},
+	},
+}, nil}
 
 func isNone(val Value) bool {
 	_, ok := val.(None)

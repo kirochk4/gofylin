@@ -37,6 +37,7 @@ func New() *Evaluator {
 	return &Evaluator{
 		Globals: map[varName]Value{
 			"println": &nativePrintln,
+			"random":  &nativeRandom,
 		},
 		env: newEnv(nil),
 	}
@@ -158,20 +159,7 @@ func (e *Evaluator) eval(node astNode) []Value {
 		}
 		return one(doc)
 	case *infixExpr:
-		l, r := e.evalOne(node.left), e.evalOne(node.right)
-		switch node.opToken.tokenType {
-		case tokenEqual:
-			return one(valuesEqual(l, r))
-		case tokenBangEqual:
-			return one(!valuesEqual(l, r))
-		case tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual,
-			tokenMinus, tokenStar, tokenSlash, tokenStarStar, tokenSlashSlash:
-			return one(numberOperation(l, r, node.opToken.tokenType))
-		case tokenPlus:
-			return one(operation(l, r, node.opToken.tokenType))
-		default:
-			panic("eval infix expr: unknown operation")
-		}
+		return one(e.infixExpr(node))
 	case *whileStmt:
 		e.whileStmt(node)
 		return nil
@@ -250,8 +238,56 @@ func (e *Evaluator) eval(node astNode) []Value {
 			return one(v)
 		}
 		return one(None{})
+	case *prefixExpr:
+		r := e.evalOne(node.right)
+		switch node.opToken.tokenType {
+		case tokenMinus:
+			rn, ok := r.(Num)
+			if !ok {
+				Raise(Str("???"))
+			}
+			return one(-rn)
+		default:
+			panic("eval prefix expr: unknown prefix")
+		}
 	}
 	panic("eval: unknown node type")
+}
+
+func (e *Evaluator) infixExpr(node *infixExpr) Value {
+	var l, r Value
+
+	l = e.evalOne(node.left)
+	switch node.opToken.tokenType {
+	case tokenAnd:
+		if valueToBool(l) {
+			return e.evalOne(node.right)
+		} else {
+			return l
+		}
+	case tokenOr:
+		if valueToBool(l) {
+			return l
+		} else {
+			return e.evalOne(node.right)
+		}
+	}
+
+	r = e.evalOne(node.right)
+	switch node.opToken.tokenType {
+	case tokenEqualEqual:
+		return valuesEqual(l, r)
+	case tokenBangEqual:
+		return !valuesEqual(l, r)
+	case tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual,
+		tokenMinus, tokenStar, tokenSlash, tokenPersent,
+		tokenStarStar, tokenSlashSlash:
+		return numberOperation(l, r, node.opToken.tokenType)
+	case tokenPlus:
+		return operation(l, r, node.opToken.tokenType)
+	default:
+		panic("eval infix expr: unknown operation")
+	}
 }
 
 func (e *Evaluator) whileStmt(node *whileStmt) {
@@ -426,6 +462,9 @@ func numberOperation(a, b Value, op tokenType) Value {
 		return an * bn
 	case tokenSlash:
 		return an / bn
+	case tokenPersent:
+		r := (an / bn)
+		return an - bn*Num(int(r))
 	case tokenStarStar:
 		return Num(math.Pow(float64(an), float64(bn)))
 	case tokenSlashSlash:

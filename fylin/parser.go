@@ -317,7 +317,8 @@ func (p *parser) expr(prec precedence) astExpr {
 		p.advance()
 		switch p.previous.tokenType {
 		case tokenAnd, tokenOr, tokenEqualEqual, tokenBangEqual,
-			tokenPlus, tokenMinus, tokenStar, tokenSlash,
+			tokenPlus, tokenMinus, tokenStar, tokenSlash, tokenPersent,
+			tokenStarStar, tokenSlashSlash,
 			tokenGreater, tokenGreaterEqual,
 			tokenLess, tokenLessEqual:
 			left = p.infixExpr(left)
@@ -464,7 +465,7 @@ const (
 	precEq                // == !=
 	precComp              // < > <= >=
 	precTerm              // + -
-	precFact              // * /
+	precFact              // * / // %
 	precUnary             // not - +
 	precCall              // . () {} [] ->
 	precHighest
@@ -486,8 +487,10 @@ var precedences = map[tokenType]precedence{
 	tokenPlus:  precTerm,
 	tokenMinus: precTerm,
 
-	tokenStar:  precFact,
-	tokenSlash: precFact,
+	tokenStar:       precFact,
+	tokenSlash:      precFact,
+	tokenPersent:    precFact,
+	tokenSlashSlash: precFact,
 
 	tokenDot:         precCall,
 	tokenLeftParen:   precCall,
