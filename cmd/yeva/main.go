@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/kirochk4/gofylin/fylin"
+	yv "github.com/kirochk4/goyeva/yeva"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 			showHelp()
 			return
 		case "--version":
-			fmt.Printf("fylin %s", fylin.Version)
+			fmt.Printf("yeva %s", yv.Version)
 			return
 		}
 	}
@@ -38,18 +38,18 @@ func runFile(args []string) error {
 	if err != nil {
 		return fmt.Errorf("run file: %w", err)
 	}
-	e := fylin.New()
-	argv := &fylin.Doc{Pairs: make(map[fylin.Value]fylin.Value, len(args))}
+	e := yv.New()
+	argv := &yv.Doc{Pairs: make(map[yv.Value]yv.Value, len(args))}
 	for i, arg := range args {
-		argv.Pairs[fylin.Num(i)] = fylin.Str(arg)
+		argv.Pairs[yv.Num(i)] = yv.Str(arg)
 	}
 	e.Globals["argv"] = argv
 	return e.Interpret(source)
 }
 
 func runRepl() error {
-	vm := fylin.New()
-	fmt.Printf("Fylin %s\n", fylin.Version)
+	vm := yv.New()
+	fmt.Printf("Yeva %s\n", yv.Version)
 	fmt.Println("exit using ctrl+c")
 	for {
 		fmt.Print(">>> ")
@@ -66,11 +66,11 @@ func runRepl() error {
 }
 
 func showHelp() {
-	fmt.Printf("Fylin %s\n", fylin.Version)
+	fmt.Printf("Yeva %s\n", yv.Version)
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println(format("repl", "fy"))
-	fmt.Println(format("file", "fy [file] [arguments...]"))
+	fmt.Println(format("repl", "yeva"))
+	fmt.Println(format("file", "yeva [file] [arguments...]"))
 	fmt.Println()
 	fmt.Println("Optional arguments:")
 	fmt.Println(format("--help", "Show command line usage"))

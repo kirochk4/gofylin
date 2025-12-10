@@ -1,8 +1,8 @@
 $os_arr = "linux", "darwin", "windows"
 $arch_arr = "arm64", "amd64"
 $folder = "bin"
-$name = "fy"
-$main = "./cmd/fylin"
+$name = "yeva"
+$main = "./cmd/yeva"
 
 foreach ($os in $os_arr) {
     $ext = ""

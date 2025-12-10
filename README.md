@@ -1,6 +1,6 @@
 **Note:** Not done yet.
 
-# Fylin (Fython)
+# Yeva
 
 ```python
 Language = { name: "Anon" }
@@ -12,6 +12,6 @@ def init_Language(name):
 def _hello(self):
     println("My name is " + self.name + "!")
 
-fylin = init_Language("Fylin")
-fylin->hello() # My name is Fylin!
+yeva = init_Language("Yeva")
+yeva->hello() # My name is Yeva!
 ```

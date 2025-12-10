@@ -1,4 +1,4 @@
-package fylin
+package yeva
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 )
 
 type Value interface {
-	fyValue()
+	Type()
 }
 
 type Prototype interface {
@@ -126,15 +126,15 @@ func (b *Box) Prototype() *Prototype {
 	return b.Proto
 }
 
-func (v None) fyValue()        {}
-func (v Bool) fyValue()        {}
-func (v Num) fyValue()         {}
-func (v Str) fyValue()         {}
-func (v *Doc) fyValue()        {}
-func (v *Func) fyValue()       {}
-func (v *NativeFunc) fyValue() {}
-func (v *Box) fyValue()        {}
-func (v *Method) fyValue()     {}
+func (v None) Type()        {}
+func (v Bool) Type()        {}
+func (v Num) Type()         {}
+func (v Str) Type()         {}
+func (v *Doc) Type()        {}
+func (v *Func) Type()       {}
+func (v *NativeFunc) Type() {}
+func (v *Box) Type()        {}
+func (v *Method) Type()     {}
 
 func (v None) String() string { return "None" }
 func (v Bool) String() string {
