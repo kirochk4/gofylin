@@ -1,5 +1,3 @@
-**Note:** Not done yet.
-
 # Yeva
 
 ```python
